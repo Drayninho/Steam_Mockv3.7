@@ -93,6 +93,9 @@ function steamImageUrl(url:string){
 }
 function clearFakeSlot(slot:HTMLElement){
   if(slot.getAttribute('data-sim-slot')!=='1')return;
+  slot.style.removeProperty('--sim-rarity-color');
+  slot.style.removeProperty('border-color');
+  slot.style.removeProperty('box-shadow');
   slot.removeAttribute('data-sim-slot');slot.removeAttribute('data-sim-id');slot.classList.remove(FAKE_CLASS);slot.removeAttribute(INTERNAL_ATTR);slot.classList.add('disabled');slot.innerHTML='';
 }
 function makeFake(item:MockItem,slot:HTMLElement){
@@ -101,8 +104,12 @@ function makeFake(item:MockItem,slot:HTMLElement){
   const el=(template?.cloneNode(true) as HTMLElement|null)||document.createElement('div');
   el.classList.add('item','app730','context2');el.removeAttribute('id');el.removeAttribute(INTERNAL_ATTR);
   const fakeColor=item.rarityColor||rarityColor(item.rarity);
+  slot.style.setProperty('--sim-rarity-color',fakeColor);
+  slot.style.setProperty('border-color',fakeColor,'important');
+  slot.style.setProperty('box-shadow','inset 0 0 0 2px '+fakeColor+', 0 0 0 1px #0008','important');
   el.style.setProperty('--sim-rarity-color',fakeColor);
-  el.style.borderColor=fakeColor;
+  el.style.setProperty('border-color',fakeColor,'important');
+  el.style.setProperty('box-shadow','inset 0 0 0 2px '+fakeColor+', 0 0 0 1px #0008','important');
   const img=el.querySelector<HTMLImageElement>(':scope > img')||el.querySelector<HTMLImageElement>('img');
   if(img){img.src=steamImageUrl(item.imageUrl);img.removeAttribute('data-src');img.removeAttribute('lazyload');img.style.position='static';img.style.width='auto';img.style.height='auto';img.style.maxWidth='100%';img.style.maxHeight='100%';img.style.objectFit='contain';img.style.margin='0';img.style.transform='none'}
   el.querySelectorAll('.slot_app_fraudwarning,.item_currency_amount,.item_currency_name').forEach(x=>x.remove());
