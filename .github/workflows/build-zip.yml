@@ -1,0 +1,17 @@
+name: Build ZIP
+on:
+  push:
+    branches: [main]
+jobs:
+  zip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create ZIP
+        run: zip -r Steam_Mockv3.7.1.zip . -x ".git/*" ".github/*"
+      - name: Upload ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: Steam_Mockv3.7.1
+          path: Steam_Mockv3.7.1.zip
+          retention-days: 7
