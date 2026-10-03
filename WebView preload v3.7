@@ -94,16 +94,6 @@ function clearFakeSlot(slot:HTMLElement){
   if(slot.getAttribute('data-sim-slot')!=='1')return;
   slot.removeAttribute('data-sim-slot');slot.removeAttribute('data-sim-id');slot.classList.remove(FAKE_CLASS);slot.removeAttribute(INTERNAL_ATTR);slot.classList.add('disabled');slot.innerHTML='';
 }
-function loadRealInventoryImages(){
-  const inv=(window as any).g_ActiveInventory;
-  if(!inv?.LoadItemImage)return;
-  for(const h of getGridHolders()){
-    if(h.getAttribute('data-sim-slot')==='1')continue;
-    const el=h.querySelector<HTMLElement>(':scope > .item') as any;
-    if(!el?.rgItem)continue;
-    try{inv.LoadItemImage(el)}catch(e){log('LoadItemImage falhou',e)}
-  }
-}
 function makeFake(item:MockItem,slot:HTMLElement){
   slot.classList.remove('disabled');slot.classList.add(FAKE_CLASS);slot.setAttribute('data-sim-slot','1');slot.setAttribute('data-sim-id',item.id);slot.setAttribute(INTERNAL_ATTR,'1');slot.innerHTML='';
   const template=[...document.querySelectorAll<HTMLElement>('.inventory_page .itemHolder:not([data-sim-slot="1"]) > .item')].find(x=>x.querySelector('img'))||null;
@@ -124,7 +114,7 @@ function makeFake(item:MockItem,slot:HTMLElement){
 
 function inject(){
   injectScheduled=false;if(!enabled()||!inventoryPage())return;
-  loadRealInventoryImages();
+  
   const items=getItems(),slots=[...document.querySelectorAll<HTMLElement>('[data-sim-slot="1"]')];
   if(!items.length){slots.forEach(clearFakeSlot);return}
   const byId=new Map(slots.map(x=>[x.getAttribute('data-sim-id')||'',x]));
@@ -199,36 +189,6 @@ function saveFromPanel(root:HTMLElement){
 }
 function wireList(root:HTMLElement){root.querySelectorAll<HTMLElement>('[data-remove]').forEach(b=>b.addEventListener('click',()=>{setItems(getItems().filter(i=>i.id!==b.dataset.remove));renderList(root);scheduleInject()}));root.querySelectorAll<HTMLElement>('[data-show]').forEach(b=>b.addEventListener('click',()=>{const i=getItems().find(x=>x.id===b.dataset.show);if(i)showDetail(i)}))}
 function renderList(root:HTMLElement){const l=root.querySelector<HTMLElement>('.list');if(!l)return;const items=getItems();l.innerHTML=`<strong>Itens locais (${items.length})</strong>${items.map(i=>`<div class="lr"><img src="${esc(i.imageUrl)}"><div class="lm"><div class="ln">${esc(i.name)}</div><div class="meta">${esc(i.rarity)} · ${esc(i.wear)} · ${esc(i.float)}${i.stattrak?' · ST':''}</div></div><button class="btn" data-show="${i.id}">Detalhes</button><button class="btn danger" data-remove="${i.id}">×</button></div>`).join('')}`;wireList(root)}
-function makeNativeMockAsset(item:MockItem, templateAsset:any, el:HTMLElement){
-  const base=templateAsset ? {...templateAsset} : {};
-  const desc={...(templateAsset?.description||{})};
-  const color=(item.rarityColor||rarityColor(item.rarity)).replace(/^#/,'');
-  const iconUrl=item.imageUrl?.replace(/^https?:\/\/[^/]+\/economy\/image\//,'')||desc.icon_url||'';
-  desc.name=item.name;
-  desc.market_hash_name=`${item.name} (${item.wear})`;
-  desc.type=`${item.weapon}`;
-  desc.name_color=color;
-  desc.background_color=desc.background_color||'';
-  desc.icon_url=iconUrl;
-  desc.icon_url_large=iconUrl;
-  desc.marketable=false;
-  desc.tradable=false;
-  desc.descriptions=[
-    {type:'html',value:`<br><div style="color:#D6D7D8">Exterior: ${esc(item.wear)}</div>`},
-    {type:'html',value:`<br><div style="color:#B9C6D2">${esc(item.finish)} para ${esc(item.weapon)}.</div>`},
-    {type:'html',value:`<br><div style="color:#9AA4AD">Marcadores: ${[item.weapon,item.rarity,item.wear,item.stattrak?'StatTrak™':'',item.souvenir?'Souvenir':''].filter(Boolean).map(esc).join(', ')}</div>`},
-    {type:'html',value:`<br><div style="color:#9AA4AD">Estilo do padrão: ${esc(item.pattern)}</div>`},
-    {type:'html',value:`<br><div style="color:#9AA4AD">Nível de desgaste: ${esc(item.float)}</div>`},
-    ...(item.stattrak?[{type:'html',value:`<br><div style="color:#9AA4AD">Contador StatTrak™: ${esc(item.kills)}</div>`}]:[])
-  ];
-  desc.tags=[
-    {category:'Type',internal_name:'CS2',localized_category_name:'Tipo',name:item.weapon},
-    {category:'Rarity',internal_name:item.rarity,localized_category_name:'Qualidade',name:item.rarity}
-  ];
-  const fake:any={...base,appid:730,contextid:2,assetid:`mock_${item.id}`,id:`mock_${item.id}`,amount:1,is_stackable:false,name:item.name,type:item.weapon,marketable:false,tradable:false,description:desc,element:el};
-  fake.rgItem=fake;
-  return fake;
-}
 function nativeInfoPanels():HTMLElement[] {
   const ids=['iteminfo0','iteminfo1'];
   const byId=ids.map(id=>document.getElementById(id)).filter((x):x is HTMLElement=>x instanceof HTMLElement);
@@ -255,39 +215,61 @@ function patchOneNativePanel(panel:HTMLElement,item:MockItem){
   if(icon&&imgUrl){icon.src=imgUrl;icon.removeAttribute('srcset');icon.removeAttribute('data-src')}
   setTextFirst(panel,['h1.hover_item_name','.hover_item_name','[id$="_item_name"]'],item.name);
   setTextFirst(panel,['#iteminfo0_game_name','#iteminfo1_game_name','[id$="_game_name"]'],'Counter-Strike 2');
-  setTextFirst(panel,['#iteminfo0_item_type','#iteminfo1_item_type','[id$="_item_type"]'],`${item.weapon}`);
+  setTextFirst(panel,['#iteminfo0_item_type','#iteminfo1_item_type','[id$="_item_type"]'],`${item.weapon} (Nível ${item.rarity})`);
   const nameEl=panel.querySelector<HTMLElement>('.hover_item_name,h1.hover_item_name,[id$="_item_name"]');
   if(nameEl)nameEl.style.color=item.rarityColor||rarityColor(item.rarity);
+  const gameIcon=panel.querySelector<HTMLImageElement>('[id$="_game_icon"]');
+  if(gameIcon&&!gameIcon.src||gameIcon&&/trans\.gif/i.test(gameIcon.src))gameIcon.src='https://community.akamai.steamstatic.com/public/images/apps/730/730icon.jpg';
   const desc=panel.querySelector<HTMLElement>('.item_desc_descriptors');
   if(desc)desc.innerHTML=descriptorHtml(item);
+  const owner=panel.querySelector<HTMLElement>('.item_desc_owner_descriptors,#iteminfo0_item_owner_descriptors,#iteminfo1_item_owner_descriptors');
+  if(owner)owner.innerHTML='';
   panel.querySelectorAll<HTMLElement>('.item_market_actions,.market_actions,.item_market_action_button,.market_listing_right_cell').forEach(x=>x.style.display='none');
   panel.setAttribute('data-sim-native-detail','1');
+  // Keep Steam's own panel visible; only the selected asset's data is replaced.
+  panel.style.zIndex='20';
 }
 function patchNativeDetail(item:MockItem){
   const panels=nativeInfoPanels();if(!panels.length)return false;let touched=false;
   for(const p of panels){patchOneNativePanel(p,item);const r=p.getBoundingClientRect();if(r.width>100&&r.height>100)touched=true}
   return touched;
 }
-function showNativeDetail(item:MockItem,slot?:HTMLElement,el?:HTMLElement){
-  const fakeSlot=slot||null;
-  const fakeEl=el||slot?.querySelector<HTMLElement>(':scope > .item');
-  if(!fakeEl){log('elemento fake ausente');return}
-  const realTemplate=[...document.querySelectorAll<HTMLElement>('.inventory_page .itemHolder:not([data-sim-slot="1"]) > .item')].find(x=>(x as any).rgItem)?.getAttribute('id');
-  let templateAsset:any=null;
-  if(realTemplate){const node=document.getElementById(realTemplate) as any;templateAsset=node?.rgItem||null}
-  if(!templateAsset){const node=[...document.querySelectorAll<HTMLElement>('.inventory_page .itemHolder:not([data-sim-slot="1"]) > .item')].find(x=>(x as any).rgItem) as any;templateAsset=node?.rgItem||null}
-  if(!templateAsset){log('não encontrei rgItem real para usar como template');return}
+function selectRealItemForNativePanel(){
   const inv=(window as any).g_ActiveInventory;
-  if(!inv?.SelectItem){log('g_ActiveInventory.SelectItem indisponível');return}
-  const fakeAsset=makeNativeMockAsset(item,templateAsset,fakeEl);
-  try{
-    inv.SelectItem(null,fakeEl,fakeAsset,true);
-    (window as any).__steamInventoryMockSelected=fakeAsset;
-  }catch(e){log('SelectItem fake falhou',e);return}
-  const apply=()=>{patchNativeDetail(item);if(fakeSlot){document.querySelectorAll<HTMLElement>('.itemHolder.activeInfo').forEach(x=>x.classList.remove('activeInfo'));document.querySelectorAll<HTMLElement>('.item.activeInfo').forEach(x=>x.classList.remove('activeInfo'));fakeSlot.classList.add('activeInfo');fakeEl.classList.add('activeInfo')}};
-  apply();[30,80,150,250,400,700].forEach(ms=>window.setTimeout(apply,ms));
+  const holders=getGridHolders().filter(h=>h.getAttribute('data-sim-slot')!=='1'&&h.querySelector('.item'));
+  for(const h of holders){
+    const el=h.querySelector<HTMLElement>(':scope > .item') as any;
+    const rg=el?.rgItem;
+    if(inv?.SelectItem&&el&&rg){
+      try{inv.SelectItem(null,el,rg,true);return {holder:h,el,rg}}
+      catch(e){log('SelectItem falhou',e)}
+    }
+  }
+  for(const h of holders){
+    const link=h.querySelector<HTMLAnchorElement>(':scope > .item > a.inventory_item_link');
+    if(link){try{link.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,view:window}));return {holder:h,el:h.querySelector<HTMLElement>(':scope > .item'),rg:null}}catch{}}
+  }
+  return null;
 }
-function showDetail(i:MockItem){const slot=document.querySelector<HTMLElement>(`[data-sim-id="${CSS.escape(i.id)}"]`);if(slot)showNativeDetail(i,slot,slot.querySelector<HTMLElement>(':scope > .item')||undefined)}
+function showNativeDetail(item:MockItem,slot?:HTMLElement){
+  const fakeSlot=slot||null;
+  // Do NOT create a second/plugin detail window. The only detail UI used here is
+  // Steam's own iteminfo0/iteminfo1 pair. We temporarily select a real item so
+  // Steam populates its native panel, then overwrite that panel locally.
+  const selected=selectRealItemForNativePanel();
+  if(!selected){log('nenhum item real disponível para abrir o inventory_iteminfo');return}
+  const apply=()=>{
+    patchNativeDetail(item);
+    document.querySelectorAll<HTMLElement>('.itemHolder.activeInfo,.item.activeInfo').forEach(x=>x.classList.remove('activeInfo'));
+    if(fakeSlot){fakeSlot.classList.add('activeInfo');fakeSlot.querySelector('.item')?.classList.add('activeInfo')}
+  };
+  apply();
+  [50,120,220,400,700].forEach(ms=>window.setTimeout(apply,ms));
+}
+function showDetail(i:MockItem){
+  const slot=document.querySelector<HTMLElement>(`[data-sim-id="${CSS.escape(i.id)}"]`);
+  if(slot)showNativeDetail(i,slot);
+}
 
 function parseSteamId(html:string){return(html.match(/g_steamID\s*=\s*["'](\d{17})["']/)||html.match(/steamid["']?\s*[:=]\s*["'](\d{17})/i))?.[1]||null}
 async function importInventory(){
@@ -305,5 +287,5 @@ async function importInventory(){
 }
 function meaningfulMutation(records:MutationRecord[]){for(const r of records){const t=r.target instanceof Element?r.target:null;if(t?.closest(`#${PANEL_ID},#${DETAIL_ID},.${FAKE_CLASS}`))continue;const nodes=[...r.addedNodes,...r.removedNodes];if(nodes.length&&nodes.every(n=>n instanceof Element&&(n as Element).closest(`#${PANEL_ID},#${DETAIL_ID},.${FAKE_CLASS},style`)))continue;if(r.type==='childList'||r.type==='attributes')return true}return false}
 function handleMutation(records:MutationRecord[]){if(!meaningfulMutation(records))return;const changed=location.href!==lastUrl;if(changed){lastUrl=location.href;removeInjected();scheduleRender()}scheduleInject()}
-function start(){ensureStyle();scheduleRender();scheduleInject();window.addEventListener('hashchange',()=>{lastUrl=location.href;removeInjected();scheduleRender();scheduleInject()});window.addEventListener('popstate',()=>{lastUrl=location.href;removeInjected();scheduleRender();scheduleInject()});observer?.disconnect();observer=new MutationObserver(handleMutation);observer.observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style','src','data-assetid','data-id']});window.setInterval(()=>{if(!inventoryPage())return;loadRealInventoryImages();scheduleInject();if(!document.getElementById(PANEL_ID))scheduleRender()},2500)}
+function start(){ensureStyle();scheduleRender();scheduleInject();window.addEventListener('hashchange',()=>{lastUrl=location.href;removeInjected();scheduleRender();scheduleInject()});window.addEventListener('popstate',()=>{lastUrl=location.href;removeInjected();scheduleRender();scheduleInject()});observer?.disconnect();observer=new MutationObserver(handleMutation);observer.observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style','src','data-assetid','data-id']});window.setInterval(()=>{if(!inventoryPage())return;scheduleInject();if(!document.getElementById(PANEL_ID))scheduleRender()},2500)}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
