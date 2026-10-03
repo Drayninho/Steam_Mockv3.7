@@ -43,6 +43,7 @@ const SIM_CSS=`
 
 const log=(...a:unknown[])=>console.log('[SIM3.7]',...a);
 let renderScheduled=false,injectScheduled=false,lastUrl=location.href,observer:MutationObserver|null=null;
+let activeFakeId:string|null=null;
 let catalog:CatalogSkin[]=[...FALLBACK],catalogLoading=false;
 
 function getItems():MockItem[]{try{const x=JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]');return Array.isArray(x)?x:[]}catch{return[]}}
@@ -99,6 +100,9 @@ function makeFake(item:MockItem,slot:HTMLElement){
   const template=[...document.querySelectorAll<HTMLElement>('.inventory_page .itemHolder:not([data-sim-slot="1"]) > .item')].find(x=>x.querySelector('img'))||null;
   const el=(template?.cloneNode(true) as HTMLElement|null)||document.createElement('div');
   el.classList.add('item','app730','context2');el.removeAttribute('id');el.removeAttribute(INTERNAL_ATTR);
+  const fakeColor=item.rarityColor||rarityColor(item.rarity);
+  el.style.setProperty('--sim-rarity-color',fakeColor);
+  el.style.borderColor=fakeColor;
   const img=el.querySelector<HTMLImageElement>(':scope > img')||el.querySelector<HTMLImageElement>('img');
   if(img){img.src=steamImageUrl(item.imageUrl);img.removeAttribute('data-src');img.removeAttribute('lazyload');img.style.position='static';img.style.width='auto';img.style.height='auto';img.style.maxWidth='100%';img.style.maxHeight='100%';img.style.objectFit='contain';img.style.margin='0';img.style.transform='none'}
   el.querySelectorAll('.slot_app_fraudwarning,.item_currency_amount,.item_currency_name').forEach(x=>x.remove());
@@ -253,6 +257,7 @@ function selectRealItemForNativePanel(){
 }
 function showNativeDetail(item:MockItem,slot?:HTMLElement){
   const fakeSlot=slot||null;
+  activeFakeId=item.id;
   // Do NOT create a second/plugin detail window. The only detail UI used here is
   // Steam's own iteminfo0/iteminfo1 pair. We temporarily select a real item so
   // Steam populates its native panel, then overwrite that panel locally.
@@ -270,6 +275,16 @@ function showDetail(i:MockItem){
   const slot=document.querySelector<HTMLElement>(`[data-sim-id="${CSS.escape(i.id)}"]`);
   if(slot)showNativeDetail(i,slot);
 }
+function installFakeClickGuard(){
+  document.addEventListener('click',e=>{
+    const target=e.target instanceof Element?e.target.closest<HTMLElement>('[data-sim-slot="1"].steam-inventory-mock-v37-item'):null;
+    if(!target)return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const id=target.getAttribute('data-sim-id');if(!id)return;
+    const item=getItems().find(i=>i.id===id);if(item)showNativeDetail(item,target);
+  },true);
+}
 
 function parseSteamId(html:string){return(html.match(/g_steamID\s*=\s*["'](\d{17})["']/)||html.match(/steamid["']?\s*[:=]\s*["'](\d{17})/i))?.[1]||null}
 async function importInventory(){
@@ -286,6 +301,15 @@ async function importInventory(){
   }catch(e){console.error('[SIM3.7] import',e);alert('Não foi possível ler o inventário. Ele pode estar privado ou o Steam pode ter bloqueado a leitura.')}
 }
 function meaningfulMutation(records:MutationRecord[]){for(const r of records){const t=r.target instanceof Element?r.target:null;if(t?.closest(`#${PANEL_ID},#${DETAIL_ID},.${FAKE_CLASS}`))continue;const nodes=[...r.addedNodes,...r.removedNodes];if(nodes.length&&nodes.every(n=>n instanceof Element&&(n as Element).closest(`#${PANEL_ID},#${DETAIL_ID},.${FAKE_CLASS},style`)))continue;if(r.type==='childList'||r.type==='attributes')return true}return false}
-function handleMutation(records:MutationRecord[]){if(!meaningfulMutation(records))return;const changed=location.href!==lastUrl;if(changed){lastUrl=location.href;removeInjected();scheduleRender()}scheduleInject()}
-function start(){ensureStyle();scheduleRender();scheduleInject();window.addEventListener('hashchange',()=>{lastUrl=location.href;removeInjected();scheduleRender();scheduleInject()});window.addEventListener('popstate',()=>{lastUrl=location.href;removeInjected();scheduleRender();scheduleInject()});observer?.disconnect();observer=new MutationObserver(handleMutation);observer.observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style','src','data-assetid','data-id']});window.setInterval(()=>{if(!inventoryPage())return;scheduleInject();if(!document.getElementById(PANEL_ID))scheduleRender()},2500)}
+function handleMutation(records:MutationRecord[]){
+  if(activeFakeId){
+    const active=getItems().find(i=>i.id===activeFakeId);
+    if(active&&nativeInfoPanels().length)window.setTimeout(()=>patchNativeDetail(active),0);
+  }
+  if(!meaningfulMutation(records))return;
+  const changed=location.href!==lastUrl;
+  if(changed){lastUrl=location.href;activeFakeId=null;removeInjected();scheduleRender()}
+  scheduleInject()
+}
+function start(){ensureStyle();installFakeClickGuard();scheduleRender();scheduleInject();window.addEventListener('hashchange',()=>{lastUrl=location.href;removeInjected();scheduleRender();scheduleInject()});window.addEventListener('popstate',()=>{lastUrl=location.href;removeInjected();scheduleRender();scheduleInject()});observer?.disconnect();observer=new MutationObserver(handleMutation);observer.observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style','src','data-assetid','data-id']});window.setInterval(()=>{if(!inventoryPage())return;scheduleInject();if(!document.getElementById(PANEL_ID))scheduleRender()},2500)}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
