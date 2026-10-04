@@ -115,7 +115,7 @@ function makeFake(item:MockItem,slot:HTMLElement){
   // The fake element has its own local Steam-like rgItem. This is used only by
   // the native SelectItem/BuildHover path and is never sent to Steam.
   (el as any).rgItem=undefined;
-  link.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();showNativeDetail(item,slot)});
+  link.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();showNativeDetail(item,slot,el)});
   slot.appendChild(el);
 }
 
