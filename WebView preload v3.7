@@ -43,6 +43,10 @@ const SIM_CSS=`
 
 const log=(...a:unknown[])=>console.log('[SIM3.7]',...a);
 let renderScheduled=false,injectScheduled=false,lastUrl=location.href,observer:MutationObserver|null=null;
+let activeFakeDetail:MockItem|null=null;
+let nativeDetailObserver:MutationObserver|null=null;
+let nativeDetailPatchTimer=0;
+let nativeDetailBusy=false;
 let catalog:CatalogSkin[]=[...FALLBACK],catalogLoading=false;
 
 function getItems():MockItem[]{try{const x=JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]');return Array.isArray(x)?x:[]}catch{return[]}}
@@ -99,11 +103,9 @@ function makeFake(item:MockItem,slot:HTMLElement){
   const template=[...document.querySelectorAll<HTMLElement>('.inventory_page .itemHolder:not([data-sim-slot="1"]) > .item')].find(x=>x.querySelector('img'))||null;
   const el=(template?.cloneNode(true) as HTMLElement|null)||document.createElement('div');
   el.classList.add('item','app730','context2');
-  const fakeColor=item.rarityColor||rarityColor(item.rarity);
-  slot.style.setProperty('border',`2px solid ${fakeColor}`,'important');
-  slot.style.setProperty('box-shadow',`inset 0 0 0 2px ${fakeColor}`,'important');
-  el.style.setProperty('border','0','important');
-  el.style.setProperty('box-shadow','none','important');el.removeAttribute('id');el.removeAttribute(INTERNAL_ATTR);
+  // v3.6 behavior: Steam draws the rarity frame on the .item itself.
+  // Keep that native frame instead of drawing a separate rectangle on .itemHolder.
+  el.style.borderColor=item.rarityColor||rarityColor(item.rarity);el.removeAttribute('id');el.removeAttribute(INTERNAL_ATTR);
   const img=el.querySelector<HTMLImageElement>(':scope > img')||el.querySelector<HTMLImageElement>('img');
   if(img){img.src=steamImageUrl(item.imageUrl);img.removeAttribute('data-src');img.removeAttribute('lazyload');img.style.position='static';img.style.width='auto';img.style.height='auto';img.style.maxWidth='100%';img.style.maxHeight='100%';img.style.objectFit='contain';img.style.margin='0';img.style.transform='none'}
   el.querySelectorAll('.slot_app_fraudwarning,.item_currency_amount,.item_currency_name').forEach(x=>x.remove());
@@ -218,60 +220,144 @@ function patchOneNativePanel(panel:HTMLElement,item:MockItem){
   const imgUrl=steamImageUrl(item.imageUrl);
   const color=item.rarityColor||rarityColor(item.rarity);
   const icon=panel.querySelector<HTMLImageElement>('.item_desc_icon img,[id$="_item_icon"],img.item_desc_icon');
-  if(icon&&imgUrl){icon.src=imgUrl;icon.removeAttribute('srcset');icon.removeAttribute('data-src')}
+  if(icon&&imgUrl){
+    icon.src=imgUrl;
+    icon.removeAttribute('srcset');
+    icon.removeAttribute('data-src');
+  }
   setTextFirst(panel,['h1.hover_item_name','.hover_item_name','[id$="_item_name"]'],item.name);
   setTextFirst(panel,['#iteminfo0_game_name','#iteminfo1_game_name','[id$="_game_name"]'],'Counter-Strike 2');
   setTextFirst(panel,['#iteminfo0_item_type','#iteminfo1_item_type','[id$="_item_type"]'],`${item.weapon} (Nível ${item.rarity})`);
   const nameEl=panel.querySelector<HTMLElement>('.hover_item_name,h1.hover_item_name,[id$="_item_name"]');
   if(nameEl)nameEl.style.setProperty('color',color,'important');
   const gameIcon=panel.querySelector<HTMLImageElement>('[id$="_game_icon"]');
-  if(gameIcon&&!gameIcon.src||gameIcon&&/trans\.gif/i.test(gameIcon.src))gameIcon.src='https://community.akamai.steamstatic.com/public/images/apps/730/730icon.jpg';
+  if(gameIcon&&(!gameIcon.src||/trans\\.gif/i.test(gameIcon.src)))gameIcon.src='https://community.akamai.steamstatic.com/public/images/apps/730/730icon.jpg';
   const desc=panel.querySelector<HTMLElement>('.item_desc_descriptors');
   if(desc)desc.innerHTML=descriptorHtml(item);
   const owner=panel.querySelector<HTMLElement>('.item_desc_owner_descriptors,#iteminfo0_item_owner_descriptors,#iteminfo1_item_owner_descriptors');
   if(owner)owner.innerHTML='';
   panel.querySelectorAll<HTMLElement>('.item_market_actions,.market_actions,.item_market_action_button,.market_listing_right_cell').forEach(x=>x.style.display='none');
   panel.setAttribute('data-sim-native-detail','1');
-  // Keep Steam's own panel visible; only the selected asset's data is replaced.
   panel.style.zIndex='20';
 }
-function patchNativeDetail(item:MockItem){
-  const panels=nativeInfoPanels();if(!panels.length)return false;let touched=false;
-  for(const p of panels){patchOneNativePanel(p,item);const r=p.getBoundingClientRect();if(r.width>100&&r.height>100)touched=true}
-  return touched;
-}
-function selectRealItemForNativePanel(){
-  const inv=(window as any).g_ActiveInventory;
-  const holders=getGridHolders().filter(h=>h.getAttribute('data-sim-slot')!=='1'&&h.querySelector('.item'));
-  for(const h of holders){
-    const el=h.querySelector<HTMLElement>(':scope > .item') as any;
-    const rg=el?.rgItem;
-    if(inv?.SelectItem&&el&&rg){
-      try{inv.SelectItem(null,el,rg,true);return {holder:h,el,rg}}
-      catch(e){log('SelectItem falhou',e)}
+
+function nativePanelMatches(panel:HTMLElement,item:MockItem){
+  const name=panel.querySelector<HTMLElement>('h1.hover_item_name,.hover_item_name,[id$="_item_name"]')?.textContent?.trim()||'';
+  if(name!==item.name)return false;
+  const desc=panel.querySelector<HTMLElement>('.item_desc_descriptors');
+  if(desc&&!desc.textContent?.includes(item.float))return false;
+  const imgUrl=steamImageUrl(item.imageUrl);
+  if(imgUrl){
+    const icon=panel.querySelector<HTMLImageElement>('.item_desc_icon img,[id$="_item_icon"],img.item_desc_icon');
+    if(icon){
+      const current=icon.currentSrc||icon.src||'';
+      if(current&&current!==imgUrl)return false;
     }
   }
-  for(const h of holders){
-    const link=h.querySelector<HTMLAnchorElement>(':scope > .item > a.inventory_item_link');
-    if(link){try{link.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,view:window}));return {holder:h,el:h.querySelector<HTMLElement>(':scope > .item'),rg:null}}catch{}}
-  }
-  return null;
+  return true;
 }
+
+function patchNativeDetail(item:MockItem){
+  const panels=nativeInfoPanels();
+  if(!panels.length)return false;
+  let touched=false;
+  for(const p of panels){
+    if(!nativePanelMatches(p,item)){
+      patchOneNativePanel(p,item);
+    }
+    const r=p.getBoundingClientRect();
+    if(r.width>100&&r.height>100)touched=true;
+  }
+  return touched;
+}
+
+function scheduleNativeDetailPatch(delay=0){
+  if(!activeFakeDetail)return;
+  if(nativeDetailPatchTimer)window.clearTimeout(nativeDetailPatchTimer);
+  nativeDetailPatchTimer=window.setTimeout(()=>{
+    nativeDetailPatchTimer=0;
+    if(!activeFakeDetail||nativeDetailBusy)return;
+    nativeDetailBusy=true;
+    try{patchNativeDetail(activeFakeDetail)}
+    finally{nativeDetailBusy=false}
+  },delay);
+}
+
+function startNativeDetailWatcher(){
+  nativeDetailObserver?.disconnect();
+  nativeDetailObserver=new MutationObserver(records=>{
+    if(!activeFakeDetail||nativeDetailBusy)return;
+    const relevant=records.some(r=>{
+      const t=r.target instanceof Element?r.target:null;
+      return !!t?.closest('.inventory_iteminfo,#iteminfo0,#iteminfo1');
+    });
+    if(relevant)scheduleNativeDetailPatch(25);
+  });
+  nativeDetailObserver.observe(document.documentElement,{
+    childList:true,
+    subtree:true,
+    attributes:true,
+    attributeFilter:['class','style','src','srcset']
+  });
+}
+
+function stopNativeDetailWatcher(){
+  nativeDetailObserver?.disconnect();
+  nativeDetailObserver=null;
+  if(nativeDetailPatchTimer)window.clearTimeout(nativeDetailPatchTimer);
+  nativeDetailPatchTimer=0;
+  activeFakeDetail=null;
+}
+
+function waitForNativeSelection(item:MockItem,attempt=0){
+  if(!activeFakeDetail||activeFakeDetail.id!==item.id)return;
+  const inv=(window as any).g_ActiveInventory;
+  const selected=inv?.selectedItem;
+  const visible=visibleNativeInfoPanel();
+
+  // Steam can take a few frames to update selectedItem and swap iteminfo0/iteminfo1.
+  // Do not patch the old panel too early.
+  if(selected&&visible){
+    scheduleNativeDetailPatch(0);
+    scheduleNativeDetailPatch(80);
+    return;
+  }
+  if(attempt<30){
+    window.setTimeout(()=>waitForNativeSelection(item,attempt+1),100);
+  }else{
+    scheduleNativeDetailPatch(0);
+  }
+}
+
 function showNativeDetail(item:MockItem,slot?:HTMLElement){
   const fakeSlot=slot||null;
-  // Do NOT create a second/plugin detail window. The only detail UI used here is
-  // Steam's own iteminfo0/iteminfo1 pair. We temporarily select a real item so
-  // Steam populates its native panel, then overwrite that panel locally.
+  activeFakeDetail=item;
+  startNativeDetailWatcher();
+
+  // Steam's native inventory panel needs a real selected item to initialize.
+  // After that initialization, the watcher replaces the real data with the mock data.
   const selected=selectRealItemForNativePanel();
-  if(!selected){log('nenhum item real disponível para abrir o inventory_iteminfo');return}
+  if(!selected){
+    log('nenhum item real disponível para abrir o inventory_iteminfo');
+    stopNativeDetailWatcher();
+    return;
+  }
+
   const apply=()=>{
-    patchNativeDetail(item);
+    if(!activeFakeDetail||activeFakeDetail.id!==item.id)return;
+    scheduleNativeDetailPatch(0);
     document.querySelectorAll<HTMLElement>('.itemHolder.activeInfo,.item.activeInfo').forEach(x=>x.classList.remove('activeInfo'));
-    if(fakeSlot){fakeSlot.classList.add('activeInfo');fakeSlot.querySelector('.item')?.classList.add('activeInfo')}
+    if(fakeSlot){
+      fakeSlot.classList.add('activeInfo');
+      fakeSlot.querySelector('.item')?.classList.add('activeInfo');
+    }
   };
+
   apply();
-  [50,100,160,220,300,400,550,700,900,1200,1600,2200,3000].forEach(ms=>window.setTimeout(apply,ms));
+  waitForNativeSelection(item);
+  [150,300,500,800,1200,1800,2500,3500,5000].forEach(ms=>window.setTimeout(apply,ms));
 }
+
 function showDetail(i:MockItem){
   const slot=document.querySelector<HTMLElement>(`[data-sim-id="${CSS.escape(i.id)}"]`);
   if(slot)showNativeDetail(i,slot);
