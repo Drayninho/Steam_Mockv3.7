@@ -98,7 +98,12 @@ function makeFake(item:MockItem,slot:HTMLElement){
   slot.classList.remove('disabled');slot.classList.add(FAKE_CLASS);slot.setAttribute('data-sim-slot','1');slot.setAttribute('data-sim-id',item.id);slot.setAttribute(INTERNAL_ATTR,'1');slot.innerHTML='';
   const template=[...document.querySelectorAll<HTMLElement>('.inventory_page .itemHolder:not([data-sim-slot="1"]) > .item')].find(x=>x.querySelector('img'))||null;
   const el=(template?.cloneNode(true) as HTMLElement|null)||document.createElement('div');
-  el.classList.add('item','app730','context2');el.removeAttribute('id');el.removeAttribute(INTERNAL_ATTR);
+  el.classList.add('item','app730','context2');
+  const fakeColor=item.rarityColor||rarityColor(item.rarity);
+  slot.style.setProperty('border',`2px solid ${fakeColor}`,'important');
+  slot.style.setProperty('box-shadow',`inset 0 0 0 2px ${fakeColor}`,'important');
+  el.style.setProperty('border','0','important');
+  el.style.setProperty('box-shadow','none','important');el.removeAttribute('id');el.removeAttribute(INTERNAL_ATTR);
   const img=el.querySelector<HTMLImageElement>(':scope > img')||el.querySelector<HTMLImageElement>('img');
   if(img){img.src=steamImageUrl(item.imageUrl);img.removeAttribute('data-src');img.removeAttribute('lazyload');img.style.position='static';img.style.width='auto';img.style.height='auto';img.style.maxWidth='100%';img.style.maxHeight='100%';img.style.objectFit='contain';img.style.margin='0';img.style.transform='none'}
   el.querySelectorAll('.slot_app_fraudwarning,.item_currency_amount,.item_currency_name').forEach(x=>x.remove());
@@ -211,13 +216,14 @@ function descriptorHtml(item:MockItem){
 }
 function patchOneNativePanel(panel:HTMLElement,item:MockItem){
   const imgUrl=steamImageUrl(item.imageUrl);
+  const color=item.rarityColor||rarityColor(item.rarity);
   const icon=panel.querySelector<HTMLImageElement>('.item_desc_icon img,[id$="_item_icon"],img.item_desc_icon');
   if(icon&&imgUrl){icon.src=imgUrl;icon.removeAttribute('srcset');icon.removeAttribute('data-src')}
   setTextFirst(panel,['h1.hover_item_name','.hover_item_name','[id$="_item_name"]'],item.name);
   setTextFirst(panel,['#iteminfo0_game_name','#iteminfo1_game_name','[id$="_game_name"]'],'Counter-Strike 2');
   setTextFirst(panel,['#iteminfo0_item_type','#iteminfo1_item_type','[id$="_item_type"]'],`${item.weapon} (Nível ${item.rarity})`);
   const nameEl=panel.querySelector<HTMLElement>('.hover_item_name,h1.hover_item_name,[id$="_item_name"]');
-  if(nameEl)nameEl.style.color=item.rarityColor||rarityColor(item.rarity);
+  if(nameEl)nameEl.style.setProperty('color',color,'important');
   const gameIcon=panel.querySelector<HTMLImageElement>('[id$="_game_icon"]');
   if(gameIcon&&!gameIcon.src||gameIcon&&/trans\.gif/i.test(gameIcon.src))gameIcon.src='https://community.akamai.steamstatic.com/public/images/apps/730/730icon.jpg';
   const desc=panel.querySelector<HTMLElement>('.item_desc_descriptors');
@@ -264,7 +270,7 @@ function showNativeDetail(item:MockItem,slot?:HTMLElement){
     if(fakeSlot){fakeSlot.classList.add('activeInfo');fakeSlot.querySelector('.item')?.classList.add('activeInfo')}
   };
   apply();
-  [50,120,220,400,700].forEach(ms=>window.setTimeout(apply,ms));
+  [50,100,160,220,300,400,550,700,900,1200,1600,2200,3000].forEach(ms=>window.setTimeout(apply,ms));
 }
 function showDetail(i:MockItem){
   const slot=document.querySelector<HTMLElement>(`[data-sim-id="${CSS.escape(i.id)}"]`);
